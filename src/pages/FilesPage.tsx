@@ -1,14 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  FolderOpen,
-  File,
-  FileText,
-  FileCode,
-  FileArchive,
-  Image,
-  Music,
-  Video,
   Download,
   Trash2,
   Copy,
@@ -17,8 +9,7 @@ import {
   Grid,
   List,
   Search,
-  Filter,
-  SortAsc,
+  ChevronLeft,
   ChevronRight,
   HardDrive,
   Cloud,
@@ -29,124 +20,13 @@ import {
   FolderPlus,
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
+import { useFilesStore, FileItem } from '@/modules/files/filesStore';
+import { getFileIcon, getFileColor, formatFileSize } from '@/modules/files/fileUtils';
+import { FilePreviewModal } from '@/modules/files/FilePreviewModal';
+import toast from 'react-hot-toast';
 
-// Tipos
-interface FileItem {
-  id: string;
-  name: string;
-  type: 'file' | 'folder';
-  extension?: string;
-  size: number;
-  modified: Date;
-  path: string;
-  starred?: boolean;
-  protected?: boolean;
-}
-
-// Mock data
-const generateMockFiles = (): FileItem[] => [
-  { id: '1', name: 'Documents', type: 'folder', size: 4096, modified: new Date('2024-01-15'), path: '/Documents' },
-  { id: '2', name: 'Projects', type: 'folder', size: 4096, modified: new Date('2024-01-20'), path: '/Projects' },
-  { id: '3', name: 'Downloads', type: 'folder', size: 4096, modified: new Date('2024-01-25'), path: '/Downloads' },
-  { id: '4', name: 'system-config.json', type: 'file', extension: 'json', size: 2048, modified: new Date('2024-01-18'), path: '/system-config.json', protected: true },
-  { id: '5', name: 'README.md', type: 'file', extension: 'md', size: 1024, modified: new Date('2024-01-22'), path: '/README.md', starred: true },
-  { id: '6', name: 'backup-2024.zip', type: 'file', extension: 'zip', size: 1048576, modified: new Date('2024-01-10'), path: '/backup-2024.zip' },
-  { id: '7', name: 'screenshot.png', type: 'file', extension: 'png', size: 524288, modified: new Date('2024-01-24'), path: '/screenshot.png' },
-  { id: '8', name: 'main.tsx', type: 'file', extension: 'tsx', size: 8192, modified: new Date('2024-01-25'), path: '/main.tsx', starred: true },
-  { id: '9', name: 'audio-track.mp3', type: 'file', extension: 'mp3', size: 3145728, modified: new Date('2024-01-12'), path: '/audio-track.mp3' },
-  { id: '10', name: 'presentation.mp4', type: 'file', extension: 'mp4', size: 10485760, modified: new Date('2024-01-08'), path: '/presentation.mp4' },
-];
 
 // Utilidades
-const getFileIcon = (item: FileItem) => {
-  if (item.type === 'folder') return FolderOpen;
-  
-  switch (item.extension) {
-    case 'txt':
-    case 'md':
-    case 'doc':
-    case 'docx':
-      return FileText;
-    case 'js':
-    case 'ts':
-    case 'jsx':
-    case 'tsx':
-    case 'json':
-    case 'xml':
-    case 'html':
-    case 'css':
-      return FileCode;
-    case 'zip':
-    case 'rar':
-    case '7z':
-    case 'tar':
-      return FileArchive;
-    case 'png':
-    case 'jpg':
-    case 'jpeg':
-    case 'gif':
-    case 'svg':
-      return Image;
-    case 'mp3':
-    case 'wav':
-    case 'ogg':
-      return Music;
-    case 'mp4':
-    case 'avi':
-    case 'mov':
-      return Video;
-    default:
-      return File;
-  }
-};
-
-const getFileColor = (item: FileItem) => {
-  if (item.type === 'folder') return 'text-omni-cyan';
-  
-  switch (item.extension) {
-    case 'js':
-    case 'ts':
-    case 'jsx':
-    case 'tsx':
-      return 'text-yellow-400';
-    case 'json':
-    case 'xml':
-      return 'text-orange-400';
-    case 'html':
-    case 'css':
-      return 'text-blue-400';
-    case 'md':
-    case 'txt':
-      return 'text-gray-400';
-    case 'png':
-    case 'jpg':
-    case 'jpeg':
-    case 'gif':
-    case 'svg':
-      return 'text-green-400';
-    case 'zip':
-    case 'rar':
-    case '7z':
-      return 'text-purple-400';
-    case 'mp3':
-    case 'wav':
-      return 'text-pink-400';
-    case 'mp4':
-    case 'avi':
-      return 'text-red-400';
-    default:
-      return 'text-omni-textDim';
-  }
-};
-
-const formatFileSize = (bytes: number): string => {
-  if (bytes === 0) return '0 Bytes';
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-};
-
 // Componentes
 const FileGridItem: React.FC<{ item: FileItem; onAction: (action: string, item: FileItem) => void }> = ({ item, onAction }) => {
   const Icon = getFileIcon(item);
@@ -294,45 +174,79 @@ const FileListItem: React.FC<{ item: FileItem; onAction: (action: string, item: 
 };
 
 export const FilesPage: React.FC = () => {
-  const [files, setFiles] = useState(generateMockFiles());
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [currentPath, setCurrentPath] = useState('/');
-  const [selectedFilter, setSelectedFilter] = useState<'all' | 'starred' | 'protected'>('all');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const {
+    files,
+    viewMode,
+    searchQuery,
+    currentPath,
+    selectedFilter,
+    sortOption,
+    selectedFileId,
+    uploading,
+    setViewMode,
+    setSearchQuery,
+    setSelectedFilter,
+    setSortOption,
+    setSelectedFileId,
+    setUploading,
+    setPath,
+    goBack,
+    addFile,
+    createFolder,
+    deleteFile,
+  } = useFilesStore();
 
   // Filtrar archivos
   const filteredFiles = useMemo(() => {
-    let filtered = files;
-    
-    // Búsqueda
+    const parentOf = (path: string) => {
+      const idx = path.lastIndexOf('/');
+      if (idx <= 0) return '/';
+      return path.substring(0, idx);
+    };
+
+    let filtered = files.filter((file) => parentOf(file.path) === currentPath);
+
     if (searchQuery) {
-      filtered = filtered.filter(file => 
+      filtered = filtered.filter((file) =>
         file.name.toLowerCase().includes(searchQuery.toLowerCase())
       );
     }
-    
-    // Filtros
+
     if (selectedFilter === 'starred') {
-      filtered = filtered.filter(file => file.starred);
+      filtered = filtered.filter((file) => file.starred);
     } else if (selectedFilter === 'protected') {
-      filtered = filtered.filter(file => file.protected);
+      filtered = filtered.filter((file) => file.protected);
     }
-    
-    // Ordenar: carpetas primero, luego archivos
-    return filtered.sort((a, b) => {
+
+    filtered.sort((a, b) => {
       if (a.type === 'folder' && b.type === 'file') return -1;
       if (a.type === 'file' && b.type === 'folder') return 1;
-      return a.name.localeCompare(b.name);
+      if (sortOption === 'name') return a.name.localeCompare(b.name);
+      if (sortOption === 'date')
+        return b.modified.getTime() - a.modified.getTime();
+      if (sortOption === 'size') return b.size - a.size;
+      return 0;
     });
-  }, [files, searchQuery, selectedFilter]);
+
+    return filtered;
+  }, [files, currentPath, searchQuery, selectedFilter, sortOption]);
 
   const handleAction = (action: string, item: FileItem) => {
-    console.log(`Action: ${action} on ${item.name}`);
-    
     if (action === 'delete') {
-      setFiles(prev => prev.filter(f => f.id !== item.id));
-    } else if (action === 'open' && item.type === 'folder') {
-      setCurrentPath(item.path);
+      deleteFile(item.id);
+      toast.success('File deleted');
+    } else if (action === 'open') {
+      if (item.type === 'folder') {
+        setPath(item.path);
+      } else {
+        setSelectedFileId(item.id);
+      }
+    } else if (action === 'download' && item.data) {
+      const link = document.createElement('a');
+      link.href = item.data;
+      link.download = item.name;
+      link.click();
     }
   };
 
@@ -342,6 +256,14 @@ export const FilesPage: React.FC = () => {
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-omni-text mb-2">File Manager</h1>
         <div className="flex items-center gap-2 text-sm text-omni-textDim">
+          {currentPath !== '/' && (
+            <button
+              onClick={goBack}
+              className="p-1 rounded hover:text-omni-cyan transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+          )}
           <HardDrive className="w-4 h-4" />
           <span>Local Storage</span>
           <ChevronRight className="w-4 h-4" />
@@ -423,16 +345,70 @@ export const FilesPage: React.FC = () => {
               <List className="w-4 h-4" />
             </button>
           </div>
+
+          <select
+            value={sortOption}
+            onChange={(e) => setSortOption(e.target.value as any)}
+            className="omni-input ml-2 h-9"
+          >
+            <option value="name">Name</option>
+            <option value="date">Date</option>
+            <option value="size">Size</option>
+          </select>
         </div>
       </div>
 
       {/* Quick actions */}
       <div className="flex gap-2 mb-4">
-        <button className="omni-btn flex items-center gap-2">
-          <Upload className="w-4 h-4" />
-          Upload Files
+        <input
+          type="file"
+          multiple
+          ref={fileInputRef}
+          onChange={async (e) => {
+            const filesList = e.target.files;
+            if (!filesList) return;
+            setUploading(true);
+            await Promise.all(
+              Array.from(filesList).map(
+                (f) =>
+                  new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      addFile({
+                        name: f.name,
+                        type: 'file',
+                        extension: f.name.split('.').pop(),
+                        size: f.size,
+                        data: reader.result as string,
+                        mimeType: f.type,
+                      });
+                      resolve(null);
+                    };
+                    reader.readAsDataURL(f);
+                  })
+              )
+            );
+            setUploading(false);
+            toast.success('Files uploaded');
+            e.target.value = '';
+          }}
+          className="hidden"
+        />
+        <button
+          className="omni-btn flex items-center gap-2"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+        >
+          <Upload className={cn('w-4 h-4', uploading && 'animate-spin')} />
+          {uploading ? 'Uploading...' : 'Upload Files'}
         </button>
-        <button className="omni-btn flex items-center gap-2">
+        <button
+          className="omni-btn flex items-center gap-2"
+          onClick={() => {
+            const name = prompt('Folder name');
+            if (name) createFolder(name);
+          }}
+        >
           <FolderPlus className="w-4 h-4" />
           New Folder
         </button>
@@ -440,7 +416,11 @@ export const FilesPage: React.FC = () => {
 
       {/* File list/grid */}
       <div className="flex-1 overflow-auto">
-        {viewMode === 'grid' ? (
+        {filteredFiles.length === 0 ? (
+          <div className="h-full flex items-center justify-center text-omni-textDim">
+            No files found
+          </div>
+        ) : viewMode === 'grid' ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
             <AnimatePresence mode="popLayout">
               {filteredFiles.map((file) => (
@@ -458,7 +438,7 @@ export const FilesPage: React.FC = () => {
               <div className="w-32">Modified</div>
               <div className="w-24"></div>
             </div>
-            
+
             <AnimatePresence mode="popLayout">
               {filteredFiles.map((file) => (
                 <FileListItem key={file.id} item={file} onAction={handleAction} />
@@ -480,6 +460,8 @@ export const FilesPage: React.FC = () => {
           <span>Auto-sync enabled</span>
         </div>
       </div>
+
+      <FilePreviewModal />
     </div>
   );
 };
