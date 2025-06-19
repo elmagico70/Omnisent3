@@ -1,14 +1,6 @@
 import React, { useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  FolderOpen,
-  File,
-  FileText,
-  FileCode,
-  FileArchive,
-  Image,
-  Music,
-  Video,
   Download,
   Trash2,
   Copy,
@@ -29,98 +21,12 @@ import {
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useFilesStore, FileItem } from '@/modules/files/filesStore';
+import { getFileIcon, getFileColor, formatFileSize } from '@/modules/files/fileUtils';
+import { FilePreviewModal } from '@/modules/files/FilePreviewModal';
+import toast from 'react-hot-toast';
 
 
 // Utilidades
-const getFileIcon = (item: FileItem) => {
-  if (item.type === 'folder') return FolderOpen;
-  
-  switch (item.extension) {
-    case 'txt':
-    case 'md':
-    case 'doc':
-    case 'docx':
-      return FileText;
-    case 'js':
-    case 'ts':
-    case 'jsx':
-    case 'tsx':
-    case 'json':
-    case 'xml':
-    case 'html':
-    case 'css':
-      return FileCode;
-    case 'zip':
-    case 'rar':
-    case '7z':
-    case 'tar':
-      return FileArchive;
-    case 'png':
-    case 'jpg':
-    case 'jpeg':
-    case 'gif':
-    case 'svg':
-      return Image;
-    case 'mp3':
-    case 'wav':
-    case 'ogg':
-      return Music;
-    case 'mp4':
-    case 'avi':
-    case 'mov':
-      return Video;
-    default:
-      return File;
-  }
-};
-
-const getFileColor = (item: FileItem) => {
-  if (item.type === 'folder') return 'text-omni-cyan';
-  
-  switch (item.extension) {
-    case 'js':
-    case 'ts':
-    case 'jsx':
-    case 'tsx':
-      return 'text-yellow-400';
-    case 'json':
-    case 'xml':
-      return 'text-orange-400';
-    case 'html':
-    case 'css':
-      return 'text-blue-400';
-    case 'md':
-    case 'txt':
-      return 'text-gray-400';
-    case 'png':
-    case 'jpg':
-    case 'jpeg':
-    case 'gif':
-    case 'svg':
-      return 'text-green-400';
-    case 'zip':
-    case 'rar':
-    case '7z':
-      return 'text-purple-400';
-    case 'mp3':
-    case 'wav':
-      return 'text-pink-400';
-    case 'mp4':
-    case 'avi':
-      return 'text-red-400';
-    default:
-      return 'text-omni-textDim';
-  }
-};
-
-const formatFileSize = (bytes: number): string => {
-  if (bytes === 0) return '0 Bytes';
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-};
-
 // Componentes
 const FileGridItem: React.FC<{ item: FileItem; onAction: (action: string, item: FileItem) => void }> = ({ item, onAction }) => {
   const Icon = getFileIcon(item);
@@ -275,9 +181,15 @@ export const FilesPage: React.FC = () => {
     searchQuery,
     currentPath,
     selectedFilter,
+    sortOption,
+    selectedFileId,
+    uploading,
     setViewMode,
     setSearchQuery,
     setSelectedFilter,
+    setSortOption,
+    setSelectedFileId,
+    setUploading,
     setPath,
     goBack,
     addFile,
@@ -307,20 +219,34 @@ export const FilesPage: React.FC = () => {
       filtered = filtered.filter((file) => file.protected);
     }
 
-    return filtered.sort((a, b) => {
+    filtered.sort((a, b) => {
       if (a.type === 'folder' && b.type === 'file') return -1;
       if (a.type === 'file' && b.type === 'folder') return 1;
-      return a.name.localeCompare(b.name);
+      if (sortOption === 'name') return a.name.localeCompare(b.name);
+      if (sortOption === 'date')
+        return b.modified.getTime() - a.modified.getTime();
+      if (sortOption === 'size') return b.size - a.size;
+      return 0;
     });
-  }, [files, currentPath, searchQuery, selectedFilter]);
+
+    return filtered;
+  }, [files, currentPath, searchQuery, selectedFilter, sortOption]);
 
   const handleAction = (action: string, item: FileItem) => {
-    console.log(`Action: ${action} on ${item.name}`);
-
     if (action === 'delete') {
       deleteFile(item.id);
-    } else if (action === 'open' && item.type === 'folder') {
-      setPath(item.path);
+      toast.success('File deleted');
+    } else if (action === 'open') {
+      if (item.type === 'folder') {
+        setPath(item.path);
+      } else {
+        setSelectedFileId(item.id);
+      }
+    } else if (action === 'download' && item.data) {
+      const link = document.createElement('a');
+      link.href = item.data;
+      link.download = item.name;
+      link.click();
     }
   };
 
@@ -419,6 +345,16 @@ export const FilesPage: React.FC = () => {
               <List className="w-4 h-4" />
             </button>
           </div>
+
+          <select
+            value={sortOption}
+            onChange={(e) => setSortOption(e.target.value as any)}
+            className="omni-input ml-2 h-9"
+          >
+            <option value="name">Name</option>
+            <option value="date">Date</option>
+            <option value="size">Size</option>
+          </select>
         </div>
       </div>
 
@@ -428,17 +364,32 @@ export const FilesPage: React.FC = () => {
           type="file"
           multiple
           ref={fileInputRef}
-          onChange={(e) => {
+          onChange={async (e) => {
             const filesList = e.target.files;
             if (!filesList) return;
-            Array.from(filesList).forEach((f) =>
-              addFile({
-                name: f.name,
-                type: 'file',
-                extension: f.name.split('.').pop(),
-                size: f.size,
-              })
+            setUploading(true);
+            await Promise.all(
+              Array.from(filesList).map(
+                (f) =>
+                  new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      addFile({
+                        name: f.name,
+                        type: 'file',
+                        extension: f.name.split('.').pop(),
+                        size: f.size,
+                        data: reader.result as string,
+                        mimeType: f.type,
+                      });
+                      resolve(null);
+                    };
+                    reader.readAsDataURL(f);
+                  })
+              )
             );
+            setUploading(false);
+            toast.success('Files uploaded');
             e.target.value = '';
           }}
           className="hidden"
@@ -446,9 +397,10 @@ export const FilesPage: React.FC = () => {
         <button
           className="omni-btn flex items-center gap-2"
           onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
         >
-          <Upload className="w-4 h-4" />
-          Upload Files
+          <Upload className={cn('w-4 h-4', uploading && 'animate-spin')} />
+          {uploading ? 'Uploading...' : 'Upload Files'}
         </button>
         <button
           className="omni-btn flex items-center gap-2"
@@ -508,6 +460,8 @@ export const FilesPage: React.FC = () => {
           <span>Auto-sync enabled</span>
         </div>
       </div>
+
+      <FilePreviewModal />
     </div>
   );
 };

@@ -9,6 +9,10 @@ export interface FileItem {
   size: number;
   modified: Date;
   path: string;
+  /** Optional base64 data for previews or download */
+  data?: string;
+  /** MIME type of the data */
+  mimeType?: string;
   starred?: boolean;
   protected?: boolean;
 }
@@ -32,6 +36,9 @@ interface FilesState {
   viewMode: "grid" | "list";
   searchQuery: string;
   selectedFilter: "all" | "starred" | "protected";
+  sortOption: "name" | "date" | "size";
+  selectedFileId: string | null;
+  uploading: boolean;
   addFile: (file: Omit<FileItem, "id" | "path" | "modified">) => void;
   createFolder: (name: string) => void;
   deleteFile: (id: string) => void;
@@ -40,15 +47,33 @@ interface FilesState {
   setViewMode: (mode: "grid" | "list") => void;
   setSearchQuery: (query: string) => void;
   setSelectedFilter: (filter: "all" | "starred" | "protected") => void;
+  setSortOption: (opt: "name" | "date" | "size") => void;
+  setSelectedFileId: (id: string | null) => void;
+  setUploading: (val: boolean) => void;
   reset: () => void;
 }
 
-const initialState: Omit<FilesState, "addFile" | "createFolder" | "deleteFile" | "setPath" | "goBack" | "setViewMode" | "setSearchQuery" | "setSelectedFilter" | "reset"> = {
+const initialState: Omit<FilesState,
+  | "addFile"
+  | "createFolder"
+  | "deleteFile"
+  | "setPath"
+  | "goBack"
+  | "setViewMode"
+  | "setSearchQuery"
+  | "setSelectedFilter"
+  | "setSortOption"
+  | "setSelectedFileId"
+  | "setUploading"
+  | "reset"> = {
   files: generateMockFiles(),
   currentPath: "/",
   viewMode: "grid",
   searchQuery: "",
   selectedFilter: "all",
+  sortOption: "name",
+  selectedFileId: null,
+  uploading: false,
 };
 
 export const useFilesStore = create<FilesState>()(
@@ -101,6 +126,9 @@ export const useFilesStore = create<FilesState>()(
       setViewMode: (mode) => set({ viewMode: mode }),
       setSearchQuery: (query) => set({ searchQuery: query }),
       setSelectedFilter: (filter) => set({ selectedFilter: filter }),
+      setSortOption: (opt) => set({ sortOption: opt }),
+      setSelectedFileId: (id) => set({ selectedFileId: id }),
+      setUploading: (val) => set({ uploading: val }),
       reset: () => set(initialState),
     }),
     {
@@ -113,6 +141,14 @@ export const useFilesStore = create<FilesState>()(
         }));
         return state;
       },
+      partialize: (state) => ({
+        files: state.files,
+        currentPath: state.currentPath,
+        viewMode: state.viewMode,
+        searchQuery: state.searchQuery,
+        selectedFilter: state.selectedFilter,
+        sortOption: state.sortOption,
+      }),
     }
   )
 );
